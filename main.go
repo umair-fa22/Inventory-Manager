@@ -43,16 +43,22 @@ func main() {
 
 	port := os.Getenv("PORT")
 	if port == "" {
+		//env not work using default
+		println("Using default port: 3000")
 		port = "3000"
 	}
 	database := os.Getenv("DATABASE")
 	if database == "" {
-		database = "test"
+		//env not work using default
+		println("Using default database: inventorydb")
+		database = "inventorydb"
 	}
 
 	collectionName := os.Getenv("COLLECTION")
 	if collectionName == "" {
-		collectionName = "items"
+		//env not work using default
+		println("Using default collection: products")
+		collectionName = "products"
 	}
 
 	// === CONNECT TO MONGODB ===
