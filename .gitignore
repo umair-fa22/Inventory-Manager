@@ -1,11 +1,9 @@
 # .gitignore
-.env.local
-*.log
-main
-docker.txt
+docker.txt  
 __pycache__/
-/tests/__pycache__/
+./tests/__pycache__/
 .pytest_cache/
 .venv/
 .coverage
 .coveragerc
+htmlcov/
