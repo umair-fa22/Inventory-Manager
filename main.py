@@ -12,16 +12,22 @@ import os
 load_dotenv()
 
 # Get configuration from environment variables
+# mongodb+srv://fa22bse137_db_user:<db_password>@cluster0.yyny9nm.mongodb.net/
+# MONGODB_URI = os.getenv('MONGODB_URI')
+
+MONGOUSR = os.getenv('MONGOUSR')
+MONGOPASS = os.getenv('MONGOPASS')
+# MONGODB_URI = f"mongodb+srv://{MONGOUSR}:{MONGOPASS}@cluster0.yyny9nm.mongodb.net/"
 MONGODB_URI = os.getenv('MONGODB_URI')
-PORT = int(os.getenv('PORT'))
+
 DATABASE = os.getenv('DATABASE')
 COLLECTION = os.getenv('COLLECTION')
 
 if not MONGODB_URI:
     raise ValueError("MONGODB_URI is required (set in .env or environment)")
 
-print(f"MONGODB: {MONGODB_URI} (length: {len(MONGODB_URI)})")
-print(f"Using port: {PORT}")
+# print(f"MONGODB: {MONGODB_URI} (length: {len(MONGODB_URI)})")
+# print(f"Using port: {PORT}")
 print(f"Using database: {DATABASE}")
 print(f"Using collection: {COLLECTION}")
 
@@ -34,7 +40,7 @@ try:
     client = MongoClient(MONGODB_URI, serverSelectionTimeoutMS=10000)
     # Verify connection
     client.admin.command('ping')
-    print(f"Connected to MongoDB → {MONGODB_URI}")
+    # print(f"Connected to MongoDB → {MONGODB_URI}")
     
     db = client[DATABASE]
     collection = db[COLLECTION]
@@ -151,6 +157,8 @@ def delete_item(id):
         return jsonify({'error': str(e)}), 500
 
 if __name__ == '__main__':
+    PORT = int(os.getenv('PORT'))
+    
     print(f"Server starting on port {PORT}")
     print(f"Click on the link to open in your browser: http://localhost:{PORT}")
-    app.run(host='0.0.0.0', port=PORT, debug=True)
+    app.run(host='0.0.0.0', port=PORT)
