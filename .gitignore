@@ -3,3 +3,9 @@
 *.log
 main
 docker.txt
+__pycache__/
+/tests/__pycache__/
+.pytest_cache/
+.venv/
+.coverage
+.coveragerc
