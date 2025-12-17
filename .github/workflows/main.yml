@@ -80,7 +80,7 @@ jobs:
           safety check --json || true
       
       - name: Upload security reports
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: security-reports
           path: |
@@ -151,7 +151,6 @@ jobs:
     name: Terraform Apply
     runs-on: ubuntu-latest
     needs: [docker-build-push, security-and-linting]
-    environment: production
     
     steps:
       - name: Checkout code
@@ -198,7 +197,7 @@ jobs:
           echo "Infrastructure provisioned successfully!"
       
       - name: Upload Terraform outputs
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: terraform-outputs
           path: infra/outputs.json
@@ -210,7 +209,6 @@ jobs:
     name: Kubernetes Deploy
     runs-on: ubuntu-latest
     needs: terraform-provision
-    environment: production
     
     steps:
       - name: Checkout code
