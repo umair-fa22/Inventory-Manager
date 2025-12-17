@@ -9,7 +9,6 @@ pipeline {
         
         // AWS configuration
         AWS_REGION = 'us-east-1'
-        AWS_CREDENTIALS = credentials('aws-credentials')
         
         // Python version
         PYTHON_VERSION = '3.13'
