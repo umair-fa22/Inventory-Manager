@@ -26,7 +26,7 @@ COLLECTION = os.getenv('COLLECTION')
 if not MONGODB_URI:
     raise ValueError("MONGODB_URI is required (set in .env or environment)")
 
-# print(f"MONGODB: {MONGODB_URI} (length: {len(MONGODB_URI)})")
+print(f"MONGODB: {MONGODB_URI} (length: {len(MONGODB_URI)})")
 # print(f"Using port: {PORT}")
 print(f"Using database: {DATABASE}")
 print(f"Using collection: {COLLECTION}")
@@ -39,8 +39,8 @@ CORS(app)
 try:
     client = MongoClient(MONGODB_URI, serverSelectionTimeoutMS=10000)
     # Verify connection
-    client.admin.command('ping')
-    # print(f"Connected to MongoDB → {MONGODB_URI}")
+    # client.admin.command('ping')  # Fails in dockerhub actions for some reason
+    print(f"Connected to MongoDB → {MONGODB_URI}")
     
     db = client[DATABASE]
     collection = db[COLLECTION]
