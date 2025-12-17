@@ -28,6 +28,7 @@ WORKDIR /app
 # Set environment variables
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
+    FLASK_ENV=production \
     PATH=/home/appuser/.local/bin:$PATH
 
 # Copy Python dependencies from builder stage
@@ -36,6 +37,7 @@ COPY --from=builder --chown=appuser:appuser /root/.local /home/appuser/.local
 # Copy application files
 COPY --chown=appuser:appuser main.py .
 COPY --chown=appuser:appuser static/ static/
+COPY --chown=appuser:appuser .env .
 
 # Switch to non-root user
 USER appuser
