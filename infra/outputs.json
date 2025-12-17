@@ -1,0 +1,45 @@
+{
+  "ec2_instance_id": {
+    "sensitive": false,
+    "type": "string",
+    "value": "i-039376cfb452fd9a8"
+  },
+  "private_subnet_ids": {
+    "sensitive": false,
+    "type": [
+      "tuple",
+      [
+        "string",
+        "string"
+      ]
+    ],
+    "value": [
+      "subnet-0ec15ec43148cc2a6",
+      "subnet-0d7c46ef6b60a1965"
+    ]
+  },
+  "public_subnet_ids": {
+    "sensitive": false,
+    "type": [
+      "tuple",
+      [
+        "string",
+        "string"
+      ]
+    ],
+    "value": [
+      "subnet-049cc24faca6e2a54",
+      "subnet-06a27609a8f71a81f"
+    ]
+  },
+  "s3_bucket_name": {
+    "sensitive": false,
+    "type": "string",
+    "value": "inventory-manager-dev-data-tuhfku"
+  },
+  "vpc_id": {
+    "sensitive": false,
+    "type": "string",
+    "value": "vpc-0cd981e7c91ad76fe"
+  }
+}

@@ -1,0 +1,17 @@
+# Terraform local state
+.terraform/
+.terraform.lock.hcl
+terraform.tfstate
+terraform.tfstate.backup
+crash.log
+
+# Variable files (user-specific)
+*.tfvars
+*.auto.tfvars
+
+# CLI outputs
+outputs.txt
+plan.out
+
+# Shell artifacts
+*.log

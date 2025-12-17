@@ -1,0 +1,32 @@
+# Example variable values for Inventory-Manager infra
+
+aws_region   = "us-east-1"
+project_name = "inventory-manager"
+environment  = "dev"
+
+# Feature toggles
+enable_eks = true
+enable_ec2 = false
+enable_rds = true
+enable_s3  = false
+
+# EKS
+cluster_version              = "1.29"
+cluster_node_instance_types  = ["t3.medium"]
+cluster_min_size             = 2
+cluster_desired_size         = 2
+cluster_max_size             = 4
+
+# EC2 fallback (only if enable_ec2 = true)
+ec2_instance_type = "t3.micro"
+ec2_key_name      = ""          # Optional, set if you want SSH access
+allowed_ssh_cidr  = "0.0.0.0/0"  # Change to your IP/CIDR for security
+
+# RDS PostgreSQL
+db_name              = "inventory_db"
+db_username          = "appuser"
+# Recommended: export TF_VAR_db_password instead of placing it here
+# db_password       = "replace-with-strong-password"
+
+# S3
+s3_enable_versioning = true
