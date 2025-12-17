@@ -1,0 +1,62 @@
+# version: '3.8'
+
+services:
+  mongo:
+    image: mongo:7.0
+    container_name: inventory-mongodb
+    # Only expose port for local testing; remove in production
+    ports:
+      - "27017:27017"
+    environment:
+      # Use secrets from .env file - no hardcoded values
+      - MONGO_INITDB_ROOT_USERNAME=${MONGO_USERNAME:-admin}
+      - MONGO_INITDB_ROOT_PASSWORD=${MONGO_PASSWORD:-changeme}
+    volumes:
+      - mongodb_data:/data/db
+      - mongodb_config:/data/configdb
+    networks:
+      - inventory-network
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    restart: unless-stopped
+
+  inventory-manager:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: inventory-app
+    ports:
+      - "${APP_PORT:-3000}:3000"
+    environment:
+      # All values from .env - no hardcoded secrets
+      - PORT=3000
+      - MONGODB_URI=mongodb://${MONGO_USERNAME:-admin}:${MONGO_PASSWORD:-changeme}@mongo:27017/
+      - DATABASE=${DATABASE:-inventory_db}
+      - COLLECTION=${COLLECTION:-items}
+    depends_on:
+      mongo:
+        condition: service_healthy
+    networks:
+      - inventory-network
+    restart: unless-stopped
+    # Security options
+    security_opt:
+      - no-new-privileges:true
+    read_only: false
+    tmpfs:
+      - /tmp
+
+networks:
+  inventory-network:
+    driver: bridge
+    name: inventory-network
+
+volumes:
+  mongodb_data:
+    name: inventory-mongodb-data
+  mongodb_config:
+    name: inventory-mongodb-config

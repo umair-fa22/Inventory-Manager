@@ -1,0 +1,51 @@
+# Multi-stage build for optimized image size
+# Stage 1: Build stage
+FROM python:3.13-slim as builder
+
+# Set working directory
+WORKDIR /app
+
+# Install build dependencies
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends gcc && \
+    rm -rf /var/lib/apt/lists/*
+
+# Copy requirements and install dependencies
+COPY requirements.txt .
+RUN pip install --no-cache-dir --user -r requirements.txt
+
+# Stage 2: Runtime stage
+FROM python:3.13-slim
+
+# Create non-root user for security
+RUN useradd -m -u 1000 appuser && \
+    mkdir -p /app && \
+    chown -R appuser:appuser /app
+
+# Set working directory
+WORKDIR /app
+
+# Set environment variables
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PATH=/home/appuser/.local/bin:$PATH
+
+# Copy Python dependencies from builder stage
+COPY --from=builder --chown=appuser:appuser /root/.local /home/appuser/.local
+
+# Copy application files
+COPY --chown=appuser:appuser main.py .
+COPY --chown=appuser:appuser static/ static/
+
+# Switch to non-root user
+USER appuser
+
+# Expose port (default Flask port, can be overridden with PORT env variable)
+EXPOSE 3000
+
+# Healthcheck
+HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
+    CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:3000/api/items').read()"
+
+# Run the application
+CMD ["python", "main.py"]
