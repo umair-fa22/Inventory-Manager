@@ -1,16 +1,16 @@
-# version: '3.8'
+# Docker Compose for local development and testing
+# Production: Use Kubernetes manifests in k8s/
 
 services:
+  # MongoDB Database
   mongo:
     image: mongo:7.0
     container_name: inventory-mongodb
-    # Only expose port for local testing; remove in production
     ports:
-      - "27017:27017"
+      - "${MONGO_PORT:-27017}:27017"
     environment:
-      # Use secrets from .env file - no hardcoded values
-      - MONGO_INITDB_ROOT_USERNAME=${MONGO_USERNAME:-admin}
-      - MONGO_INITDB_ROOT_PASSWORD=${MONGO_PASSWORD:-changeme}
+      - MONGO_INITDB_ROOT_USERNAME=${MONGO_USERNAME}
+      - MONGO_INITDB_ROOT_PASSWORD=${MONGO_PASSWORD}
     volumes:
       - mongodb_data:/data/db
       - mongodb_config:/data/configdb
@@ -23,7 +23,39 @@ services:
       retries: 5
       start_period: 30s
     restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
 
+  # Redis Cache and Message Queue
+  redis:
+    image: redis:7-alpine
+    container_name: inventory-redis
+    command: >
+      sh -c "redis-server 
+      --requirepass $${REDIS_PASSWORD}
+      --appendonly yes
+      --appendfsync everysec
+      --maxmemory 256mb
+      --maxmemory-policy allkeys-lru"
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    environment:
+      - REDIS_PASSWORD=${REDIS_PASSWORD}
+    volumes:
+      - redis_data:/data
+    networks:
+      - inventory-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "--no-auth-warning", "-a", "$${REDIS_PASSWORD}", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 10s
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+
+  # Application Service
   inventory-manager:
     build:
       context: .
@@ -32,31 +64,52 @@ services:
     ports:
       - "${APP_PORT:-3000}:3000"
     environment:
-      # All values from .env - no hardcoded secrets
       - PORT=3000
-      - MONGODB_URI=mongodb://${MONGO_USERNAME:-admin}:${MONGO_PASSWORD:-changeme}@mongo:27017/
+      - MONGODB_URI=mongodb://${MONGO_USERNAME}:${MONGO_PASSWORD}@mongo:27017/
       - DATABASE=${DATABASE:-inventory_db}
       - COLLECTION=${COLLECTION:-items}
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - REDIS_PASSWORD=${REDIS_PASSWORD}
+      - CACHE_TTL=${CACHE_TTL:-300}
     depends_on:
       mongo:
+        condition: service_healthy
+      redis:
         condition: service_healthy
     networks:
       - inventory-network
     restart: unless-stopped
-    # Security options
     security_opt:
       - no-new-privileges:true
     read_only: false
     tmpfs:
       - /tmp
+    # Resource limits for container
+    deploy:
+      resources:
+        limits:
+          cpus: '1'
+          memory: 512M
+        reservations:
+          cpus: '0.5'
+          memory: 256M
 
 networks:
   inventory-network:
     driver: bridge
     name: inventory-network
+    ipam:
+      config:
+        - subnet: 172.20.0.0/16
 
 volumes:
   mongodb_data:
     name: inventory-mongodb-data
+    driver: local
   mongodb_config:
     name: inventory-mongodb-config
+    driver: local
+  redis_data:
+    name: inventory-redis-data
+    driver: local

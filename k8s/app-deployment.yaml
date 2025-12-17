@@ -1,0 +1,154 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: inventory-app
+  namespace: inventory-manager
+  labels:
+    app: inventory-app
+    tier: backend
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: inventory-app
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  template:
+    metadata:
+      labels:
+        app: inventory-app
+        tier: backend
+    spec:
+      containers:
+      - name: inventory-app
+        image: inventory-manager:latest  # Replace with your registry
+        imagePullPolicy: Always
+        ports:
+        - containerPort: 3000
+          name: http
+        env:
+        - name: PORT
+          valueFrom:
+            configMapKeyRef:
+              name: inventory-config
+              key: PORT
+        - name: DATABASE
+          valueFrom:
+            configMapKeyRef:
+              name: inventory-config
+              key: DATABASE
+        - name: COLLECTION
+          valueFrom:
+            configMapKeyRef:
+              name: inventory-config
+              key: COLLECTION
+        - name: CACHE_TTL
+          valueFrom:
+            configMapKeyRef:
+              name: inventory-config
+              key: CACHE_TTL
+        - name: REDIS_HOST
+          valueFrom:
+            configMapKeyRef:
+              name: inventory-config
+              key: REDIS_HOST
+        - name: REDIS_PORT
+          valueFrom:
+            configMapKeyRef:
+              name: inventory-config
+              key: REDIS_PORT
+        - name: MONGO_USERNAME
+          valueFrom:
+            secretKeyRef:
+              name: inventory-secrets
+              key: mongo-username
+        - name: MONGO_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: inventory-secrets
+              key: mongo-password
+        - name: REDIS_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: inventory-secrets
+              key: redis-password
+        - name: MONGODB_URI
+          value: "mongodb://$(MONGO_USERNAME):$(MONGO_PASSWORD)@mongodb-service:27017/"
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "250m"
+          limits:
+            memory: "512Mi"
+            cpu: "500m"
+        livenessProbe:
+          httpGet:
+            path: /api/items
+            port: 3000
+          initialDelaySeconds: 40
+          periodSeconds: 30
+          timeoutSeconds: 10
+          failureThreshold: 3
+        readinessProbe:
+          httpGet:
+            path: /api/items
+            port: 3000
+          initialDelaySeconds: 10
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+        securityContext:
+          runAsNonRoot: true
+          runAsUser: 1000
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: false
+          capabilities:
+            drop:
+            - ALL
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: inventory-service
+  namespace: inventory-manager
+  labels:
+    app: inventory-app
+    tier: backend
+spec:
+  type: LoadBalancer  # Change to NodePort or ClusterIP as needed
+  ports:
+  - port: 80
+    targetPort: 3000
+    protocol: TCP
+    name: http
+  selector:
+    app: inventory-app
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: inventory-app-hpa
+  namespace: inventory-manager
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: inventory-app
+  minReplicas: 3
+  maxReplicas: 10
+  metrics:
+  - type: Resource
+    resource:
+      name: cpu
+      target:
+        type: Utilization
+        averageUtilization: 70
+  - type: Resource
+    resource:
+      name: memory
+      target:
+        type: Utilization
+        averageUtilization: 80

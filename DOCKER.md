@@ -2,11 +2,14 @@
 
 ## Features ✅
 
-1. **Multi-stage Dockerfile** - Optimized for smaller image size
-2. **Local Testing Environment** - Complete docker-compose setup
-3. **Container Networking** - Isolated bridge network for services
-4. **Persistent Storage** - MongoDB data persists across container restarts
-5. **No Hardcoded Secrets** - All secrets loaded from .env file
+1. **Multi-stage Dockerfile** - Optimized for production with security hardening
+2. **Local Testing Environment** - Complete docker-compose with MongoDB, Redis, and app
+3. **Container Networking** - Isolated bridge network verified and tested
+4. **Persistent Storage** - MongoDB and Redis data persists across restarts
+5. **No Hardcoded Secrets** - All secrets via environment variables
+6. **Production-Ready** - Gunicorn WSGI server, health checks, resource limits
+7. **Cache & Message Queue** - Redis for caching and pub/sub messaging
+8. **Kubernetes-Ready** - Extensible to microservices with k8s manifests
 
 ## Quick Start
 
@@ -18,11 +21,28 @@ cp .env.example .env
 
 Edit `.env` and set your credentials:
 ```env
+# Application
+PORT=3000
+APP_PORT=3000
+
+# MongoDB
 MONGO_USERNAME=admin
-MONGO_PASSWORD=your_secure_password
+MONGO_PASSWORD=<generate-secure-password>
+MONGO_PORT=27017
+MONGODB_URI=mongodb://admin:<password>@mongo:27017/
 DATABASE=inventory_db
 COLLECTION=items
-APP_PORT=3000
+
+# Redis
+REDIS_HOST=redis
+REDIS_PORT=6379
+REDIS_PASSWORD=<generate-secure-password>
+CACHE_TTL=300
+```
+
+Generate secure passwords:
+```bash
+openssl rand -base64 32
 ```
 
 ⚠️ **Important:** Never commit the `.env` file to version control!
@@ -43,9 +63,31 @@ docker-compose ps
 ### 3. Access Application
 
 - **Application:** http://localhost:3000
+- **API:** http://localhost:3000/api/items
 - **MongoDB:** localhost:27017 (for local development only)
+- **Redis:** localhost:6379 (for local development only)
 
 ## Docker Architecture
+
+### Services Overview
+
+```
+┌─────────────────────┐
+│  Inventory Manager  │  Port: 3000
+│   (Flask + Redis)   │  Image: Custom (multi-stage)
+└──────┬──────┬───────┘
+       │      │
+   ┌───▼──┐   │
+   │Redis │   │  Port: 6379
+   └──────┘   │  Image: redis:7-alpine
+              │  Volume: redis_data
+          ┌───▼─────┐
+          │ MongoDB │  Port: 27017
+          └─────────┘  Image: mongo:7.0
+                      Volumes: mongodb_data, mongodb_config
+
+Network: inventory-network (bridge, 172.20.0.0/16)
+```
 
 ### Multi-stage Build
 The Dockerfile uses a two-stage build process:
