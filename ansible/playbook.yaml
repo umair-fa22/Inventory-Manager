@@ -1,0 +1,122 @@
+---
+- name: Configure Inventory Manager Application Server
+  hosts: ec2_instances
+  become: true
+  gather_facts: true
+  
+  vars:
+    app_user: ec2-user
+    app_dir: /opt/inventory-manager
+    python_version: "3.11"
+    docker_compose_version: "2.24.0"
+    
+  tasks:
+    - name: Update system packages
+      yum:
+        name: '*'
+        state: latest
+        update_cache: yes
+      tags: [system, updates]
+      
+    - name: Install required system packages
+      yum:
+        name:
+          - git
+          - python3
+          - python3-pip
+          - docker
+          - wget
+          - vim
+        state: present
+      tags: [packages]
+      
+    - name: Start and enable Docker service
+      systemd:
+        name: docker
+        state: started
+        enabled: yes
+      tags: [docker]
+      
+    - name: Add ec2-user to docker group
+      user:
+        name: "{{ app_user }}"
+        groups: docker
+        append: yes
+      tags: [docker]
+      
+    - name: Install Docker Compose
+      get_url:
+        url: "https://github.com/docker/compose/releases/download/v{{ docker_compose_version }}/docker-compose-linux-x86_64"
+        dest: /usr/local/bin/docker-compose
+        mode: '0755'
+      tags: [docker]
+      
+    - name: Create application directory
+      file:
+        path: "{{ app_dir }}"
+        state: directory
+        owner: "{{ app_user }}"
+        group: "{{ app_user }}"
+        mode: '0755'
+      tags: [app]
+      
+    - name: Clone application repository
+      git:
+        repo: "https://github.com/ud3v/Inventory-Manager.git"
+        dest: "{{ app_dir }}"
+        version: main
+        force: yes
+      become_user: "{{ app_user }}"
+      tags: [app, deploy]
+      
+    - name: Check if requirements.txt exists
+      stat:
+        path: "{{ app_dir }}/requirements.txt"
+      register: requirements_file
+      tags: [app, python]
+      
+    - name: Install Python dependencies
+      pip:
+        requirements: "{{ app_dir }}/requirements.txt"
+        executable: pip3
+      when: requirements_file.stat.exists
+      tags: [app, python]
+      
+    - name: Copy application configuration
+      template:
+        src: templates/app_config.env.j2
+        dest: "{{ app_dir }}/.env"
+        owner: "{{ app_user }}"
+        group: "{{ app_user }}"
+        mode: '0600'
+      tags: [app, config]
+      when: app_config_template_exists | default(false)
+      
+    - name: Verify Docker installation
+      command: docker --version
+      register: docker_version
+      changed_when: false
+      tags: [docker, info]
+      
+    - name: Display application information
+      debug:
+        msg:
+          - "============================================"
+          - "✓ Ansible Deployment Successful!"
+          - "============================================"
+          - "Application deployed to: {{ app_dir }}"
+          - "Docker version: {{ docker_version.stdout }}"
+          - "Python version: {{ ansible_python_version }}"
+          - "Server IP: {{ ansible_default_ipv4.address }}"
+          - "============================================"
+      tags: [info]
+      
+  handlers:
+    - name: reload systemd
+      systemd:
+        daemon_reload: yes
+        
+    - name: restart docker
+      systemd:
+        name: docker
+        state: restarted
