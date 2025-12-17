@@ -2,7 +2,7 @@ apiVersion: v1
 kind: ConfigMap
 metadata:
   name: inventory-config
-  namespace: inventory-manager
+  namespace: inventory-prod
 data:
   PORT: "3000"
   DATABASE: "inventory_db"

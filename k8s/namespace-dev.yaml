@@ -1,0 +1,7 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: inventory-dev
+  labels:
+    name: inventory-dev
+    environment: development

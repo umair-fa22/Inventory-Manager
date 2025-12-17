@@ -2,7 +2,7 @@ apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
   name: inventory-ingress
-  namespace: inventory-manager
+  namespace: inventory-prod
   annotations:
     # Nginx ingress controller annotations
     nginx.ingress.kubernetes.io/rewrite-target: /

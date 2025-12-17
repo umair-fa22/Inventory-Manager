@@ -2,7 +2,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: inventory-app
-  namespace: inventory-manager
+  namespace: inventory-prod
   labels:
     app: inventory-app
     tier: backend
@@ -25,7 +25,7 @@ spec:
       containers:
       - name: inventory-app
         image: inventory-manager:latest  # Replace with your registry
-        imagePullPolicy: Always
+        imagePullPolicy: Never
         ports:
         - containerPort: 3000
           name: http
@@ -113,7 +113,7 @@ apiVersion: v1
 kind: Service
 metadata:
   name: inventory-service
-  namespace: inventory-manager
+  namespace: inventory-prod
   labels:
     app: inventory-app
     tier: backend
@@ -131,7 +131,7 @@ apiVersion: autoscaling/v2
 kind: HorizontalPodAutoscaler
 metadata:
   name: inventory-app-hpa
-  namespace: inventory-manager
+  namespace: inventory-prod
 spec:
   scaleTargetRef:
     apiVersion: apps/v1
