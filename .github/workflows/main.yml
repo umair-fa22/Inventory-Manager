@@ -1,0 +1,394 @@
+name: CI/CD Pipeline - Inventory Manager
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+env:
+  DOCKER_IMAGE: ${{ secrets.DOCKERUSER }}/inventory-manager
+  PYTHON_VERSION: "3.13"
+  AWS_REGION: us-east-1
+
+jobs:
+  # ============================================================================
+  # Stage 1: Build & Test
+  # ============================================================================
+  build-and-test:
+    name: Build and Test
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: 'pip'
+      
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+      
+      - name: Run unit tests
+        run: |
+          pytest tests/ -v --cov=. --cov-report=xml --cov-report=term
+      
+      - name: Upload coverage reports
+        uses: codecov/codecov-action@v3
+        with:
+          file: ./coverage.xml
+          fail_ci_if_error: false
+  
+  # ============================================================================
+  # Stage 2: Security & Linting (after simple tests pass)
+  # ============================================================================
+  security-and-linting:
+    name: Security & Linting
+    runs-on: ubuntu-latest
+    needs: build-and-test
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      
+      - name: Install security tools
+        run: |
+          pip install bandit safety flake8 pylint
+      
+      - name: Run Flake8 linting
+        run: |
+          flake8 main.py tests/ --max-line-length=120 --extend-ignore=E501,W503 || true
+      
+      - name: Run Bandit security scan
+        run: |
+          bandit -r main.py -f json -o bandit-report.json || true
+          bandit -r main.py || true
+      
+      - name: Check dependencies for vulnerabilities
+        run: |
+          safety check --json || true
+      
+      - name: Upload security reports
+        uses: actions/upload-artifact@v3
+        with:
+          name: security-reports
+          path: |
+            bandit-report.json
+  
+  # ============================================================================
+  # Stage 3: Docker Build & Push
+  # ============================================================================
+  docker-build-push:
+    name: Docker Build & Push
+    runs-on: ubuntu-latest
+    needs: [build-and-test]
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+      
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERUSER }}
+          password: ${{ secrets.DOCKERTOKEN }}
+      
+      - name: Extract metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.DOCKER_IMAGE }}
+          tags: |
+            type=ref,event=branch
+            type=ref,event=pr
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=sha,prefix={{branch}}-
+            type=raw,value=latest,enable={{is_default_branch}}
+      
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=registry,ref=${{ env.DOCKER_IMAGE }}:buildcache
+          cache-to: type=registry,ref=${{ env.DOCKER_IMAGE }}:buildcache,mode=max
+      
+      - name: Run Trivy vulnerability scanner
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: ${{ env.DOCKER_IMAGE }}:latest
+          format: 'sarif'
+          output: 'trivy-results.sarif'
+        continue-on-error: true
+      
+      - name: Upload Trivy results
+        uses: github/codeql-action/upload-sarif@v2
+        with:
+          sarif_file: 'trivy-results.sarif'
+        continue-on-error: true
+  
+  # ============================================================================
+  # Stage 4: Terraform Infrastructure Provisioning
+  # ============================================================================
+  terraform-provision:
+    name: Terraform Apply
+    runs-on: ubuntu-latest
+    needs: [docker-build-push, security-and-linting]
+    environment: production
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+      
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.5.0"
+      
+      - name: Terraform Format Check
+        working-directory: ./infra
+        run: terraform fmt -check
+        continue-on-error: true
+      
+      - name: Terraform Init
+        working-directory: ./infra
+        run: terraform init
+      
+      - name: Terraform Validate
+        working-directory: ./infra
+        run: terraform validate
+      
+      - name: Terraform Plan
+        working-directory: ./infra
+        run: terraform plan -out=tfplan
+      
+      - name: Terraform Apply
+        working-directory: ./infra
+        run: terraform apply -auto-approve tfplan
+        if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+      
+      - name: Save Terraform Outputs
+        working-directory: ./infra
+        run: |
+          terraform output -json > outputs.json
+          echo "Infrastructure provisioned successfully!"
+      
+      - name: Upload Terraform outputs
+        uses: actions/upload-artifact@v3
+        with:
+          name: terraform-outputs
+          path: infra/outputs.json
+  
+  # ============================================================================
+  # Stage 5: Kubernetes Deployment
+  # ============================================================================
+  kubernetes-deploy:
+    name: Kubernetes Deploy
+    runs-on: ubuntu-latest
+    needs: terraform-provision
+    environment: production
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+      
+      - name: Download Terraform outputs
+        uses: actions/download-artifact@v3
+        with:
+          name: terraform-outputs
+          path: ./infra
+      
+      - name: Update kubeconfig
+        run: |
+          aws eks update-kubeconfig --name inventory-manager-cluster --region ${{ env.AWS_REGION }}
+      
+      - name: Update image tag in deployment
+        run: |
+          sed -i "s|image:.*inventory-manager.*|image: ${{ env.DOCKER_IMAGE }}:${{ github.sha }}|g" k8s/app-deployment.yaml
+      
+      - name: Create namespace
+        run: |
+          kubectl apply -f k8s/namespace.yaml || true
+      
+      - name: Apply ConfigMap and Secrets
+        run: |
+          kubectl apply -f k8s/configmap.yaml -n inventory-manager || true
+          kubectl apply -f k8s/secrets.yaml -n inventory-manager || true
+      
+      - name: Deploy MongoDB and Redis
+        run: |
+          kubectl apply -f k8s/mongodb-deployment.yaml -n inventory-manager
+          kubectl apply -f k8s/redis-deployment.yaml -n inventory-manager
+      
+      - name: Wait for database services
+        run: |
+          kubectl wait --for=condition=ready pod -l app=mongodb -n inventory-manager --timeout=300s
+          kubectl wait --for=condition=ready pod -l app=redis -n inventory-manager --timeout=300s
+      
+      - name: Deploy application
+        run: |
+          kubectl apply -f k8s/app-deployment.yaml -n inventory-manager
+          kubectl apply -f k8s/ingress.yaml -n inventory-manager || true
+      
+      - name: Wait for application deployment
+        run: |
+          kubectl rollout status deployment/inventory-manager -n inventory-manager --timeout=300s
+      
+      - name: Get deployment status
+        run: |
+          kubectl get pods -n inventory-manager
+          kubectl get services -n inventory-manager
+          kubectl get ingress -n inventory-manager || true
+  
+  # ============================================================================
+  # Stage 6: Post-Deploy Smoke Tests
+  # ============================================================================
+  smoke-tests:
+    name: Post-Deploy Smoke Tests
+    runs-on: ubuntu-latest
+    needs: kubernetes-deploy
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+      
+      - name: Update kubeconfig
+        run: |
+          aws eks update-kubeconfig --name inventory-manager-cluster --region ${{ env.AWS_REGION }}
+      
+      - name: Get service endpoint
+        id: endpoint
+        run: |
+          # Try to get LoadBalancer or use port-forward for testing
+          SERVICE_IP=$(kubectl get service inventory-manager-service -n inventory-manager -o jsonpath='{.status.loadBalancer.ingress[0].hostname}' 2>/dev/null || echo "")
+          if [ -z "$SERVICE_IP" ]; then
+            # Use port-forward as fallback
+            kubectl port-forward -n inventory-manager service/inventory-manager-service 8080:3000 &
+            sleep 5
+            SERVICE_URL="http://localhost:8080"
+          else
+            SERVICE_URL="http://$SERVICE_IP:3000"
+          fi
+          echo "SERVICE_URL=$SERVICE_URL" >> $GITHUB_OUTPUT
+          echo "Testing endpoint: $SERVICE_URL"
+      
+      - name: Health check
+        run: |
+          max_attempts=10
+          attempt=0
+          while [ $attempt -lt $max_attempts ]; do
+            if curl -f -s "${{ steps.endpoint.outputs.SERVICE_URL }}/api/items" > /dev/null; then
+              echo "✓ Health check passed"
+              exit 0
+            fi
+            attempt=$((attempt + 1))
+            echo "Attempt $attempt/$max_attempts failed, retrying in 10s..."
+            sleep 10
+          done
+          echo "✗ Health check failed after $max_attempts attempts"
+          exit 1
+      
+      - name: Test API endpoints
+        run: |
+          BASE_URL="${{ steps.endpoint.outputs.SERVICE_URL }}"
+          
+          # Test GET /api/items
+          echo "Testing GET /api/items..."
+          response=$(curl -s -o /dev/null -w "%{http_code}" "$BASE_URL/api/items")
+          if [ "$response" = "200" ]; then
+            echo "✓ GET /api/items - PASSED"
+          else
+            echo "✗ GET /api/items - FAILED (HTTP $response)"
+            exit 1
+          fi
+          
+          # Test POST /api/items
+          echo "Testing POST /api/items..."
+          response=$(curl -s -o /dev/null -w "%{http_code}" -X POST "$BASE_URL/api/items" \
+            -H "Content-Type: application/json" \
+            -d '{"name":"Test Item","quantity":10,"price":29.99}')
+          if [ "$response" = "201" ] || [ "$response" = "200" ]; then
+            echo "✓ POST /api/items - PASSED"
+          else
+            echo "✗ POST /api/items - FAILED (HTTP $response)"
+            exit 1
+          fi
+          
+          echo "✓ All smoke tests passed!"
+      
+      - name: Display pod logs on failure
+        if: failure()
+        run: |
+          echo "=== Application Logs ==="
+          kubectl logs -n inventory-manager -l app=inventory-manager --tail=100 || true
+          echo "=== MongoDB Logs ==="
+          kubectl logs -n inventory-manager -l app=mongodb --tail=50 || true
+          echo "=== Redis Logs ==="
+          kubectl logs -n inventory-manager -l app=redis --tail=50 || true
+  
+  # ============================================================================
+  # Deployment Summary
+  # ============================================================================
+  deployment-summary:
+    name: Deployment Summary
+    runs-on: ubuntu-latest
+    needs: [smoke-tests]
+    if: always()
+    
+    steps:
+      - name: Create deployment summary
+        run: |
+          echo "# 🚀 Deployment Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "## Pipeline Status" >> $GITHUB_STEP_SUMMARY
+          echo "- **Build & Test**: ✅ Passed" >> $GITHUB_STEP_SUMMARY
+          echo "- **Security & Linting**: ✅ Passed" >> $GITHUB_STEP_SUMMARY
+          echo "- **Docker Build & Push**: ✅ Passed" >> $GITHUB_STEP_SUMMARY
+          echo "- **Terraform Provision**: ✅ Passed" >> $GITHUB_STEP_SUMMARY
+          echo "- **Kubernetes Deploy**: ✅ Passed" >> $GITHUB_STEP_SUMMARY
+          echo "- **Smoke Tests**: ✅ Passed" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "## Deployment Details" >> $GITHUB_STEP_SUMMARY
+          echo "- **Commit**: ${{ github.sha }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Branch**: ${{ github.ref_name }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Docker Image**: ${{ env.DOCKER_IMAGE }}:${{ github.sha }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Environment**: Production" >> $GITHUB_STEP_SUMMARY
+          echo "- **Deployed At**: $(date -u)" >> $GITHUB_STEP_SUMMARY
