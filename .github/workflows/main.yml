@@ -254,10 +254,6 @@ jobs:
           name: terraform-outputs
           path: ./infra
       
-      - name: Update kubeconfig
-        run: |
-          aws eks update-kubeconfig --name inventory-manager-cluster --region ${{ env.AWS_REGION }}
-      
       - name: Update image tag in deployment
         run: |
           sed -i "s|image:.*inventory-manager.*|image: ${{ env.DOCKER_IMAGE }}:${{ github.sha }}|g" k8s/app-deployment.yaml
