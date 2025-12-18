@@ -177,6 +177,24 @@ jobs:
         working-directory: ./infra
         run: terraform init
       
+      - name: Check VPC Limits
+        run: |
+          chmod +x infra/list-vpcs.sh
+          ./infra/list-vpcs.sh
+          
+          # Check if we're at VPC limit
+          VPC_COUNT=$(aws ec2 describe-vpcs --region ${{ env.AWS_REGION }} --query 'Vpcs | length' --output text)
+          echo "Current VPCs: ${VPC_COUNT}/5"
+          
+          if [ "${VPC_COUNT}" -ge 5 ]; then
+            echo "::error::VPC limit reached! Please delete unused VPCs or import existing VPC."
+            echo "::error::Run './infra/list-vpcs.sh' locally to see all VPCs"
+            echo "::error::Delete unused VPC: './cleanup-vpc.sh <vpc-id>'"
+            echo "::error::Or import existing: 'cd infra && ./import-vpc.sh <vpc-id>'"
+            exit 1
+          fi
+        continue-on-error: false
+      
       - name: Cleanup orphaned resources
         working-directory: ./infra
         run: |
