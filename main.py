@@ -1,7 +1,7 @@
 #!.venv/bin/python3
 
 
-from flask import Flask, jsonify, request, send_from_directory
+from flask import Flask, jsonify, request, send_from_directory, Response
 from flask_cors import CORS
 from pymongo import MongoClient
 from bson import ObjectId
@@ -9,6 +9,9 @@ from dotenv import load_dotenv
 import os
 import redis
 import json
+from prometheus_client import Counter, Histogram, Gauge, generate_latest, CONTENT_TYPE_LATEST, CollectorRegistry, multiprocess, REGISTRY
+from prometheus_client import make_wsgi_app
+import time
 
 # Load environment variables from .env file
 load_dotenv()
@@ -41,6 +44,61 @@ print(f"Redis host: {REDIS_HOST}:{REDIS_PORT}")
 # Initialize Flask app
 app = Flask(__name__, static_folder='static')
 CORS(app)
+
+# Prometheus Metrics
+REQUEST_COUNT = Counter(
+    'inventory_requests_total',
+    'Total number of requests',
+    ['method', 'endpoint', 'status']
+)
+
+REQUEST_LATENCY = Histogram(
+    'inventory_request_duration_seconds',
+    'Request latency in seconds',
+    ['method', 'endpoint']
+)
+
+INVENTORY_ITEMS = Gauge(
+    'inventory_items_total',
+    'Total number of inventory items'
+)
+
+CACHE_HITS = Counter(
+    'inventory_cache_hits_total',
+    'Total number of cache hits'
+)
+
+CACHE_MISSES = Counter(
+    'inventory_cache_misses_total',
+    'Total number of cache misses'
+)
+
+DB_ERRORS = Counter(
+    'inventory_db_errors_total',
+    'Total number of database errors'
+)
+
+# Middleware to track request metrics
+@app.before_request
+def before_request():
+    request.start_time = time.time()
+
+@app.after_request
+def after_request(response):
+    if hasattr(request, 'start_time'):
+        latency = time.time() - request.start_time
+        REQUEST_LATENCY.labels(
+            method=request.method,
+            endpoint=request.path
+        ).observe(latency)
+        
+        REQUEST_COUNT.labels(
+            method=request.method,
+            endpoint=request.path,
+            status=response.status_code
+        ).inc()
+    
+    return response
 
 # Connect to Redis
 try:
@@ -84,9 +142,15 @@ def get_from_cache(key):
         return None
     try:
         data = redis_client.get(key)
-        return json.loads(data) if data else None
+        if data:
+            CACHE_HITS.inc()
+            return json.loads(data)
+        else:
+            CACHE_MISSES.inc()
+            return None
     except Exception as e:
         print(f"Cache get error: {e}")
+        CACHE_MISSES.inc()
         return None
 
 def set_in_cache(key, value, ttl=CACHE_TTL):
@@ -130,6 +194,24 @@ def index():
 def serve_static(path):
     return send_from_directory('static', path)
 
+# Prometheus metrics endpoint
+@app.route('/metrics')
+def metrics():
+    # Update inventory items gauge
+    try:
+        count = collection.count_documents({})
+        INVENTORY_ITEMS.set(count)
+    except Exception as e:
+        print(f"Error counting documents: {e}")
+        DB_ERRORS.inc()
+    
+    # Generate metrics in a format compatible with gunicorn workers
+    try:
+        return Response(generate_latest(), mimetype=CONTENT_TYPE_LATEST)
+    except Exception as e:
+        print(f"Error generating metrics: {e}")
+        return Response("# Error generating metrics\n", mimetype="text/plain"), 500
+
 # API Routes
 @app.route('/api/items', methods=['GET'])
 def get_items():
@@ -149,6 +231,7 @@ def get_items():
         
         return jsonify(items), 200
     except Exception as e:
+        DB_ERRORS.inc()
         return jsonify({'error': str(e)}), 500
 
 @app.route('/api/items/<id>', methods=['GET'])
@@ -174,6 +257,7 @@ def get_item(id):
         
         return jsonify(serialized_item), 200
     except Exception as e:
+        DB_ERRORS.inc()
         return jsonify({'error': str(e)}), 500
 
 @app.route('/api/items', methods=['POST'])
@@ -200,6 +284,7 @@ def create_item():
         
         return jsonify(item), 201
     except Exception as e:
+        DB_ERRORS.inc()
         return jsonify({'error': str(e)}), 500
 
 @app.route('/api/items/<id>', methods=['PUT'])
@@ -236,6 +321,7 @@ def update_item(id):
         
         return jsonify(update_data), 200
     except Exception as e:
+        DB_ERRORS.inc()
         return jsonify({'error': str(e)}), 500
 
 @app.route('/api/items/<id>', methods=['DELETE'])
@@ -255,6 +341,7 @@ def delete_item(id):
         
         return jsonify({'message': 'Item deleted'}), 200
     except Exception as e:
+        DB_ERRORS.inc()
         return jsonify({'error': str(e)}), 500
 
 if __name__ == '__main__':

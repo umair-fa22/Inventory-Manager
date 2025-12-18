@@ -21,6 +21,10 @@ spec:
       labels:
         app: inventory-app
         tier: backend
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "3000"
+        prometheus.io/path: "/metrics"
     spec:
       containers:
       - name: inventory-app

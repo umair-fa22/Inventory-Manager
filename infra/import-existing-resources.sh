@@ -69,6 +69,29 @@ else
 fi
 echo ""
 
+# Import EKS Cluster
+echo "Checking if EKS cluster exists..."
+if aws eks describe-cluster --name "${CLUSTER_NAME}" --region ${AWS_REGION} &>/dev/null; then
+    echo "EKS cluster '${CLUSTER_NAME}' exists in AWS"
+    import_if_exists "module.eks[0].aws_eks_cluster.this[0]" "${CLUSTER_NAME}" "EKS Cluster"
+    
+    # Import EKS Node Groups
+    echo "Checking for EKS node groups..."
+    NODE_GROUPS=$(aws eks list-nodegroups --cluster-name "${CLUSTER_NAME}" --region ${AWS_REGION} \
+        --query 'nodegroups' --output text 2>/dev/null || echo "")
+    
+    if [ -n "${NODE_GROUPS}" ]; then
+        for node_group in ${NODE_GROUPS}; do
+            echo "Found node group: ${node_group}"
+            import_if_exists "module.eks[0].module.eks_managed_node_group[\"default\"].aws_eks_node_group.this[0]" \
+                "${CLUSTER_NAME}:${node_group}" "EKS Node Group (${node_group})"
+        done
+    fi
+else
+    echo "EKS cluster does not exist, skipping import"
+fi
+echo ""
+
 # Import CloudWatch Log Group
 import_if_exists "module.eks[0].aws_cloudwatch_log_group.this[0]" "${LOG_GROUP}" "CloudWatch Log Group"
 

@@ -72,6 +72,10 @@ services:
       - REDIS_PORT=6379
       - REDIS_PASSWORD=${REDIS_PASSWORD}
       - CACHE_TTL=${CACHE_TTL:-300}
+    labels:
+      - "prometheus.io/scrape=true"
+      - "prometheus.io/port=3000"
+      - "prometheus.io/path=/metrics"
     depends_on:
       mongo:
         condition: service_healthy
@@ -95,6 +99,72 @@ services:
           cpus: '0.5'
           memory: 256M
 
+  # Prometheus - Metrics Collection
+  prometheus:
+    image: prom/prometheus:v2.48.0
+    container_name: inventory-prometheus
+    ports:
+      - "9090:9090"
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--storage.tsdb.retention.time=30d'
+      - '--web.console.libraries=/usr/share/prometheus/console_libraries'
+      - '--web.console.templates=/usr/share/prometheus/consoles'
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml
+      - prometheus_data:/prometheus
+    networks:
+      - inventory-network
+    restart: unless-stopped
+    depends_on:
+      - inventory-manager
+    security_opt:
+      - no-new-privileges:true
+
+  # Grafana - Metrics Visualization
+  grafana:
+    image: grafana/grafana:10.2.2
+    container_name: inventory-grafana
+    ports:
+      - "3001:3000"
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=admin123
+      - GF_INSTALL_PLUGINS=
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning
+    networks:
+      - inventory-network
+    restart: unless-stopped
+    depends_on:
+      - prometheus
+    security_opt:
+      - no-new-privileges:true
+    user: "472"
+
+  # Node Exporter - System Metrics
+  node-exporter:
+    image: prom/node-exporter:v1.7.0
+    container_name: inventory-node-exporter
+    command:
+      - '--path.procfs=/host/proc'
+      - '--path.sysfs=/host/sys'
+      - '--path.rootfs=/rootfs'
+      - '--collector.filesystem.mount-points-exclude=^/(sys|proc|dev|host|etc)($$|/)'
+    ports:
+      - "9100:9100"
+    volumes:
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+      - /:/rootfs:ro
+    networks:
+      - inventory-network
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+
 networks:
   inventory-network:
     driver: bridge
@@ -112,4 +182,10 @@ volumes:
     driver: local
   redis_data:
     name: inventory-redis-data
+    driver: local
+  prometheus_data:
+    name: inventory-prometheus-data
+    driver: local
+  grafana_data:
+    name: inventory-grafana-data
     driver: local
