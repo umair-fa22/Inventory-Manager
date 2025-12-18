@@ -30,7 +30,7 @@ module "rds" {
   identifier = "${local.name}-pg"
 
   engine                = "postgres"
-  engine_version        = "15.4"
+  engine_version        = "15.7"
   family                = "postgres15"
   instance_class        = var.db_instance_class
   allocated_storage     = var.db_allocated_storage
