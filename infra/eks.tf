@@ -22,10 +22,5 @@ module "eks" {
 
   enable_cluster_creator_admin_permissions = true
 
-  # Handle pre-existing resources
-  create_cloudwatch_log_group = false
-  create_kms_key              = false
-  cluster_encryption_config   = {}
-
   tags = local.tags
 }
