@@ -217,11 +217,6 @@ jobs:
         working-directory: ./infra
         run: terraform plan -out=tfplan
       
-      - name: Terraform Apply
-        working-directory: ./infra
-        run: terraform apply -auto-approve tfplan
-        if: github.ref == 'refs/heads/main' && github.event_name == 'push'
-      
       - name: Save Terraform Outputs
         working-directory: ./infra
         run: |
